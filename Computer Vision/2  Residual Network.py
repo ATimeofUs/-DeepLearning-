@@ -259,8 +259,6 @@ class Args:
     patience = 10            # 早停耐心值
     lr_patience = 5          # 学习率调整耐心值
     min_lr = 1e-6           # 最小学习率
-    amp = False              # 是否使用混合精度 (True/False)
-
 
 # ====================================
 def main():
@@ -308,13 +306,6 @@ def main():
     # 学习率调度器
     # 采用 ReduceLROnPlateau，根据验证集损失调整学习率
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=args.lr_patience, min_lr=args.min_lr)
-
-    # 混合精度训练的梯度缩放器
-    """
-    通常神经网络计算使用的是 float32（32位浮点数）。
-    为了加速，我们可以让显卡使用 float16（16位浮点数）。它的计算速度快，占内存少。
-    这个函数将帮助我们在使用 float16 时，动态调整梯度的大小，防止数值溢出。
-    """
 
     # Training with early stopping
     best_val_loss = float("inf")

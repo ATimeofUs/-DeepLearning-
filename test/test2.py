@@ -3,7 +3,6 @@ import os
 import cv2
 import torch
 import numpy as np
-from tqdm import tqdm
 
 from torch import nn
 from typing import Tuple, List
@@ -102,7 +101,6 @@ def load_mydata(
     X_val, y_val = load_split(val_pairs)
     return X_train, y_train, X_val, y_val
 
-
 class MyDataset(Dataset):
     def __init__(self, np_X, list_y):
         self.trans = transforms.ToTensor()
@@ -120,44 +118,43 @@ class MyDataset(Dataset):
         return img, labels
 
 def collate_fn(batch):
-    """
-    collate_fn 用于 DataLoader，将单个样本列表合并为一个 batch。
-    """
-    # batch 是 DataLoader 传入的单个 batch 列表，每个元素为 (img, targets)
-    # imgs: 元组[Tensor]，targets: 元组[Tensor或空]
-    imgs, targets = list(zip(*batch))  
+    # batch: 长度 = B 的列表，每个元素是 (img, targets)
 
-    # 将图片张量按 batch 维堆叠 -> (B, C, H, W)
+    # 1) 拆分图片和标注，得到两个元组 imgs, targets
+    imgs, targets = list(zip(*batch))
+
+    # 2) 把所有图片堆叠到 batch 维，得到 (B, C, H, W)
     imgs = torch.stack(imgs, 0)
 
     new_targets = []
     for i, t in enumerate(targets):
-        # 如果该样本没有标注（空），跳过
+        # 3) 如果这个样本没有标注，跳过
         if t.numel() == 0:
             continue
-        # 给每条标注前面加一列 batch 索引，形状 (n,1)
+        # 4) 给每条标注加一列“batch 索引” i，形状 (n, 1)
         batch_col = torch.full((t.shape[0], 1), i, dtype=t.dtype)
-        # 接后形状 (n,6): [batch_id, cls, cx, cy, w, h]，坐标仍为归一化格式
+        # 5) 拼成 (n, 6): [batch_id, cls, cx, cy, w, h]
         new_targets.append(torch.cat((batch_col, t), dim=1))
 
+    # 6) 把所有样本的标注在 0 维拼成一个大表 (M, 6)，M 为本 batch 的总框数
     if len(new_targets):
-        # 将不同样本的标注在 0 维拼接 -> (M,6)
         new_targets = torch.cat(new_targets, dim=0)
     else:
-        # 若整个 batch 没有任何标注，返回空张量
+        # 整个 batch 都没标注时，返回空张量
         new_targets = torch.zeros((0, 6), dtype=torch.float32)
 
-    # 返回堆叠后的图片和合并后的 targets（含 batch 索引）
+    # 7) 返回图片张量 (B, C, H, W) 和合并后的标注 (M, 6)
     return imgs, new_targets
 
-# --------------------
-# 模型
-# --------------------
 class YOLOLayer(nn.Module):
     """Decode raw preds to pixel-space boxes."""
     def __init__(self, anchors, num_classes=1, stride=32):
+        """
+        anchors : List of tuple = [(10, 13), (16, 30), (33, 23)]
+        num_classes: number of classes
+        """
         super().__init__()
-        self.anchors = torch.tensor(anchors, dtype=torch.float32).view(-1, 2)
+        self.anchors = torch.tensor(anchors, dtype=torch.float32).view(-1, 2) # (nA, 2)
         self.num_anchors = self.anchors.size(0)
         self.num_classes = num_classes
         self.stride = stride
@@ -169,14 +166,19 @@ class YOLOLayer(nn.Module):
         b, _, ny, nx = x.shape
         device = x.device
         x = x.view(b, self.num_anchors, self.num_outputs, ny, nx)
-        x = x.permute(0, 1, 3, 4, 2).contiguous()  # (B, nA, ny, nx, no)
+        x = x.permute(0, 1, 3, 4, 2).contiguous()  
+        # (B, nA, ny, nx, no)
 
         if (self.grid is None
                 or self.grid.shape[2:4] != (ny, nx)
                 or self.grid.device != device):
             self.grid = self._make_grid(nx, ny, device)
 
-        anchors = (self.anchors.to(device) / self.stride).view(1, self.num_anchors, 1, 1, 2)
+        
+        anchors = (
+            (self.anchors.to(device) / self.stride).
+            view(1, self.num_anchors, 1, 1, 2)
+        )
 
         # raw predictions
         raw = x
@@ -214,6 +216,7 @@ class Network(nn.Module):
         self.stride = stride
         self.yolo = YOLOLayer(anchors, num_classes=num_classes, stride=stride)
 
+        # 简化的特征提取网络
         def conv_bn_act(in_channels, out_channels):
             return nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -244,109 +247,17 @@ class Network(nn.Module):
         return decoded, raw  # decoded for inference, raw for loss
 
 
-# --------------------
-# 目标分配与损失（简化版）
-# --------------------
-def build_targets(
-    targets,      # (n,6): b,cls,cx,cy,w,h in normalized coords
-    anchors,      # tensor (nA,2) pixel anchors
-    stride,       # int
-    feat_h, feat_w,
-    num_classes,
-    device,
-):
-    """
-    返回：
-    tbox:   (B, nA, feat_h, feat_w, 4)
-    tconf:  (B, nA, feat_h, feat_w, 1)
-    tcls:   (B, nA, feat_h, feat_w, num_classes)
-    """
-    tbox = torch.zeros((targets[:,0].max().int().item()+1 if targets.numel() else 1,
-                        anchors.shape[0], feat_h, feat_w, 4), device=device)
-    tconf = torch.zeros((tbox.shape[0], anchors.shape[0], feat_h, feat_w, 1), device=device)
-    tcls = torch.zeros((tbox.shape[0], anchors.shape[0], feat_h, feat_w, num_classes), device=device)
 
-    if targets.numel() == 0:
-        return tbox, tconf, tcls
-
-    gxy = targets[:, 2:4] * torch.tensor([feat_w, feat_h], device=device)  # center in grid coords
-    gwh = targets[:, 4:6] * torch.tensor([feat_w * stride, feat_h * stride], device=device) / stride  # normalize to anchor space
-    gij = gxy.long()
-    gi, gj = gij[:, 0], gij[:, 1]
-
-    # anchor matching by ratio
-    anchor_wh = anchors.to(device) / stride  # to grid units
-    ratios = gwh[:, None, :] / anchor_wh[None]  # (nT, nA, 2)
-    inv_ratios = anchor_wh[None] / (gwh[:, None, :] + 1e-9)
-    max_ratios = torch.max(ratios, inv_ratios).max(dim=2).values  # (nT, nA)
-    best_anchors = max_ratios.argmin(dim=1)  # choose best anchor
-
-    for ti, a in enumerate(best_anchors):
-        b = int(targets[ti, 0])
-        cls = int(targets[ti, 1])
-        if gj[ti] < feat_h and gi[ti] < feat_w:
-            tbox[b, a, gj[ti], gi[ti], 0:2] = gxy[ti] - gij[ti]          # offset within cell (0~1)
-            tbox[b, a, gj[ti], gi[ti], 2:4] = torch.log(
-                targets[ti, 4:6] * torch.tensor([feat_w * stride, feat_h * stride], device=device) / anchors[a] + 1e-16
-            )
-            tconf[b, a, gj[ti], gi[ti], 0] = 1.0
-            if num_classes > 1:
-                tcls[b, a, gj[ti], gi[ti], cls] = 1.0
-    return tbox, tconf, tcls
-
-
-class YoloLoss(nn.Module):
-    def __init__(self, anchors, num_classes, stride):
-        super().__init__()
-        self.anchors = torch.tensor(anchors, dtype=torch.float32)
-        self.num_classes = num_classes
-        self.stride = stride
-        self.bce = nn.BCEWithLogitsLoss()
-        self.bce_pos = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([1.0]))
-        self.l1 = nn.SmoothL1Loss()
-
-    def forward(self, raw_pred, targets):
-        # raw_pred: (B, nA, ny, nx, 5+nc) BEFORE sigmoid/exp
-        device = raw_pred.device
-        b, nA, ny, nx, no = raw_pred.shape
-
-        anchors = self.anchors.to(device)
-        tbox, tconf, tcls = build_targets(
-            targets, anchors, self.stride, ny, nx, self.num_classes, device
-        )
-
-        # predicted parts
-        p_xy = torch.sigmoid(raw_pred[..., 0:2])
-        p_wh = raw_pred[..., 2:4]  # to be compared with logged targets
-        p_obj = raw_pred[..., 4:5]
-        p_cls = raw_pred[..., 5:]
-
-        # box loss: offset + wh log-space
-        l_box = self.l1(p_xy[tconf.bool().expand_as(p_xy)], tbox[..., 0:2][tconf.bool().expand_as(tbox[..., 0:2])]) \
-            if tconf.sum() > 0 else torch.tensor(0., device=device)
-        l_wh = self.l1(p_wh[tconf.bool().expand_as(p_wh)], tbox[..., 2:4][tconf.bool().expand_as(tbox[..., 2:4])]) \
-            if tconf.sum() > 0 else torch.tensor(0., device=device)
-
-        # obj loss
-        l_obj = self.bce(p_obj, tconf)
-
-        # cls loss
-        if self.num_classes > 1:
-            l_cls = self.bce(p_cls, tcls)
-        else:
-            # binary: treat as confidence of class 0 = 1 when object exists
-            l_cls = torch.tensor(0., device=device)
-
-        loss = l_box + l_wh + l_obj + l_cls
-        return loss, {"l_box": l_box.item(), "l_wh": l_wh.item(),
-                      "l_obj": l_obj.item(), "l_cls": l_cls.item() if isinstance(l_cls, torch.Tensor) else l_cls}
-    
-
-
-# --------------------
-# 训练与验证（简化）
-# --------------------
 def main():
+    """
+    训练集图像形状: (115, 640, 640, 3)
+    训练集标签数量: 115
+    """
+    pass
+
+
+
+def main2():
     device = Args.device
     train_image, train_labels, val_image, val_labels = (
         load_mydata(Args.images_dir, Args.labels_dir, img_size=Args.img_size, split_ratio=Args.split_ratio))
@@ -374,6 +285,12 @@ def main():
         collate_fn=collate_fn,
     )
 
+    """
+    每一个 batch：
+    imgs: (B, 3, 640, 640) float32 in [0,1]
+    targets: (M, 6) float32: [batch_id, cls, cx, cy, w, h] (normalized 0 ~ 1)
+    """
+
     model = Network(num_classes=Args.num_classes, anchors=Args.anchors, stride=Args.stride).to(device)
     criterion = YoloLoss(anchors=Args.anchors, num_classes=Args.num_classes, stride=Args.stride)
     optimizer = torch.optim.Adam(model.parameters(), lr=Args.lr)
@@ -382,8 +299,6 @@ def main():
     loss = None
     loss_items = None
     for epoch in range(Args.epochs):
-        tpdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{Args.epochs}")
-
         for imgs, targets in train_loader:
             imgs = imgs.to(device)
             targets = targets.to(device)  # (n,6): b,cls,cx,cy,w,h (normalized)
@@ -395,26 +310,19 @@ def main():
             loss.backward()
             optimizer.step()
 
-            tpdm.set_postfix(loss=f"{loss.item():.4f}",
-                           l_box=f"{loss_items['l_box']:.4f}",
-                           l_wh=f"{loss_items['l_wh']:.4f}",
-                           l_obj=f"{loss_items['l_obj']:.4f}",
-                           l_cls=f"{loss_items['l_cls']:.4f}")
-
         print(f"Epoch {epoch+1}/{Args.epochs} | "
               f"loss={loss.item():.4f} | "
               f"l_box={loss_items['l_box']:.4f} l_wh={loss_items['l_wh']:.4f} "
               f"l_obj={loss_items['l_obj']:.4f} l_cls={loss_items['l_cls']:.4f}")
 
-    # # 简单验证（仅前向，不计算 mAP）
-    # model.eval()
-    # with torch.no_grad():
-    #     for imgs, _ in val_loader:
-    #         imgs = imgs.to(device)
-    #         decoded, _ = model(imgs)
-    #         # decoded: (B, nA, ny, nx, 5+nc) in pixel coords
-    #         # 在此可添加 NMS / 置信度过滤
-
+    # 简单验证（仅前向，不计算 mAP）
+    model.eval()
+    with torch.no_grad():
+        for imgs, _ in val_loader:
+            imgs = imgs.to(device)
+            decoded, _ = model(imgs)
+            # decoded: (B, nA, ny, nx, 5+nc) in pixel coords
+            # 在此可添加 NMS / 置信度过滤
 
 if __name__ == "__main__":
     main()

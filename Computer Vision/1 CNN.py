@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from tqdm import tqdm
 
+
 CLASSES = ('plane', 'car', 'bird', 'cat', 'deer',
            'dog', 'frog', 'horse', 'ship', 'truck')
 
@@ -38,9 +39,13 @@ def _load_batch(data_dir: str, filename: str) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def load_numpy_cifar(base_dir: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    base_dir = os.path.abspath(base_dir)
     data_dir = os.path.join(base_dir, 'cifar-10-batches-py')
-    if not os.path.exists(data_dir):
-        raise FileNotFoundError(f"找不到目录: {data_dir}，请检查文件结构。")
+    if not os.path.isdir(data_dir):
+        raise FileNotFoundError(
+            f"找不到目录: {data_dir}，请检查文件结构。"
+            f" (cwd={os.getcwd()})"
+        )
 
     train_images, train_labels = [], []
     for i in range(1, 6):
@@ -165,9 +170,8 @@ def train_one_epoch(model, loader, criterion, optimizer, device, scaler):
         # 5. 前向传播 (Forward Pass)
         # torch.amp.autocast: 这是一个上下文管理器。
         # 如果 scaler 存在 (enabled=True)，它会自动把部分计算转为 float16 (半精度) 以加速。
-        with torch.amp.autocast('cuda', enabled=scaler is not None):
-            outputs = model(images)  # 模型预测
-            loss = criterion(outputs, labels)  # 把预测结果和真实标签对比，计算"损失"(误差大小)
+        outputs = model(images)  # 模型预测
+        loss = criterion(outputs, labels)  # 把预测结果和真实标签对比，计算"损失"(误差大小)
 
         # 6. 反向传播 (Backward Pass) 和 参数更新 (Optimizer Step)
         if scaler:
@@ -222,7 +226,8 @@ def evaluate(model, loader, criterion, device):
 
 # === 替代 argparse 的简单配置部分 ===
 class Args:
-    data_dir = "./data"      # 数据目录
+    # 注意：相对路径会受当前工作目录(cwd)影响，这里用脚本所在目录拼默认路径，避免从哪里运行都找不到。
+    data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")  # 数据目录
     batch_size = 128         # 批次大小
     epochs = 40              # 训练轮数
     lr = 1e-3               # 学习率

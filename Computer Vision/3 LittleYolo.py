@@ -184,13 +184,15 @@ class YOLOLayer(nn.Module):
         # decoded
         xy = torch.sigmoid(raw[..., 0:2]) + self.grid  # center
         wh = torch.exp(raw[..., 2:4]) * anchors        # wh
-        conf = torch.sigmoid(raw[..., 4:5])
-        cls = torch.sigmoid(raw[..., 5:])
+        conf = torch.sigmoid(raw[..., 4:5]) # 检测置信度
+        cls = torch.sigmoid(raw[..., 5:]) # 类别置信度
 
         decoded = torch.cat((xy * self.stride, wh * self.stride, conf, cls), dim=-1)
         # shapes:
         # decoded: (B, nA, ny, nx, 5+nc) in pixel coords for xywh
         # raw    : same shape, before sigmoid/exp on each part
+        
+        breakpoint()
         return decoded, raw
 
     @staticmethod
@@ -245,7 +247,7 @@ class Network(nn.Module):
 
 
 # --------------------
-# 目标分配与损失（简化版）
+# 目标分配与损失
 # --------------------
 def build_targets(
     targets,      # (n,6): b,cls,cx,cy,w,h in normalized coords
@@ -379,8 +381,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=Args.lr)
 
     model.train()
-    loss = None
-    loss_items = None
+
     for epoch in range(Args.epochs):
         tpdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{Args.epochs}")
 
@@ -406,14 +407,7 @@ def main():
               f"l_box={loss_items['l_box']:.4f} l_wh={loss_items['l_wh']:.4f} "
               f"l_obj={loss_items['l_obj']:.4f} l_cls={loss_items['l_cls']:.4f}")
 
-    # # 简单验证（仅前向，不计算 mAP）
-    # model.eval()
-    # with torch.no_grad():
-    #     for imgs, _ in val_loader:
-    #         imgs = imgs.to(device)
-    #         decoded, _ = model(imgs)
-    #         # decoded: (B, nA, ny, nx, 5+nc) in pixel coords
-    #         # 在此可添加 NMS / 置信度过滤
+
 
 
 if __name__ == "__main__":

@@ -5,10 +5,96 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
+from matplotlib import pyplot as plt
+from matplotlib.patches import Rectangle
 from torch import nn
 from typing import Tuple, List
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+
+
+def xywh_center_to_xyxy(xywh: torch.Tensor) -> torch.Tensor:
+    """xywh (center) -> xyxy (corners). xywh is (...,4) in pixels."""
+    x, y, w, h = xywh.unbind(-1)
+    x1 = x - w / 2
+    y1 = y - h / 2
+    x2 = x + w / 2
+    y2 = y + h / 2
+    return torch.stack((x1, y1, x2, y2), dim=-1)
+
+
+def denorm_targets_to_xyxy(targets_b: torch.Tensor, img_size: int) -> torch.Tensor:
+    """targets_b: (n,5) [cls,cx,cy,w,h] normalized -> (n,4) xyxy in pixels."""
+    if targets_b.numel() == 0:
+        return torch.zeros((0, 4), dtype=torch.float32)
+    cxcywh = targets_b[:, 1:5] * img_size
+    return xywh_center_to_xyxy(cxcywh)
+
+
+def plot_decoded_predictions(
+    img_chw: torch.Tensor,
+    decoded_b: torch.Tensor,
+    targets_b: torch.Tensor | None = None,
+    conf_thres: float = 0.35,
+    topk: int = 30,
+    title: str | None = None,
+):
+    """用 decoded 画预测框（不做 NMS，仅按 score 过滤 + topk）。
+
+    img_chw: (3,H,W) in [0,1]
+    decoded_b: (nA,ny,nx,5+nc) in pixel xywh(center)
+    targets_b: optional (n,5) [cls,cx,cy,w,h] normalized
+    """
+    img = (img_chw.detach().cpu().permute(1, 2, 0).clamp(0, 1).numpy() * 255).astype(np.uint8)
+
+    # flatten predictions
+    pred = decoded_b.detach().cpu().reshape(-1, decoded_b.shape[-1])  # (N, 5+nc)
+    xywh = pred[:, 0:4]
+    conf = pred[:, 4]
+    cls_prob = pred[:, 5:] if pred.shape[1] > 5 else None
+    if cls_prob is not None and cls_prob.numel() > 0:
+        score = conf * cls_prob.max(dim=1).values
+    else:
+        score = conf
+
+    keep = score > conf_thres
+    pred = pred[keep]
+    score = score[keep]
+    if pred.numel() > 0:
+        # 取 topk，避免画太多框
+        k = min(topk, score.numel())
+        top_idx = torch.topk(score, k=k, largest=True).indices
+        xyxy = xywh_center_to_xyxy(pred[top_idx, 0:4])
+        score = score[top_idx]
+    else:
+        xyxy = torch.zeros((0, 4), dtype=torch.float32)
+
+    fig, ax = plt.subplots(1, 1, figsize=(7, 7))
+    ax.imshow(img)
+    if title:
+        ax.set_title(title)
+    ax.axis("off")
+
+    # 画预测框（红色）
+    for (x1, y1, x2, y2), s in zip(xyxy.tolist(), score.tolist()):
+        w = max(0.0, x2 - x1)
+        h = max(0.0, y2 - y1)
+        rect = Rectangle((x1, y1), w, h, fill=False, edgecolor="red", linewidth=2)
+        ax.add_patch(rect)
+        ax.text(x1, max(0.0, y1 - 2), f"{s:.2f}", color="red", fontsize=10,
+                bbox=dict(facecolor="black", alpha=0.3, pad=1, edgecolor="none"))
+
+    # 可选：画 GT 框（绿色）
+    if targets_b is not None:
+        gt_xyxy = denorm_targets_to_xyxy(targets_b.detach().cpu(), img_size=img.shape[0])
+        for (x1, y1, x2, y2) in gt_xyxy.tolist():
+            w = max(0.0, x2 - x1)
+            h = max(0.0, y2 - y1)
+            rect = Rectangle((x1, y1), w, h, fill=False, edgecolor="lime", linewidth=2)
+            ax.add_patch(rect)
+
+    plt.show(block=False)
+    plt.pause(0.001)
 
 # --------------------
 # 配置
@@ -150,9 +236,6 @@ def collate_fn(batch):
     # 返回堆叠后的图片和合并后的 targets（含 batch 索引）
     return imgs, new_targets
 
-# --------------------
-# 模型
-# --------------------
 class YOLOLayer(nn.Module):
     """Decode raw preds to pixel-space boxes."""
     def __init__(self, anchors, num_classes=1, stride=32):
@@ -192,7 +275,7 @@ class YOLOLayer(nn.Module):
         # decoded: (B, nA, ny, nx, 5+nc) in pixel coords for xywh
         # raw    : same shape, before sigmoid/exp on each part
         
-        breakpoint()
+        
         return decoded, raw
 
     @staticmethod
@@ -205,9 +288,8 @@ class YOLOLayer(nn.Module):
         grid = torch.stack((xv, yv), dim=-1)
         return grid.view(1, 1, ny, nx, 2)
 
-
 class Network(nn.Module):
-    def __init__(self, num_classes=1, anchors=None, stride=32):
+    def __init__(self, num_classes, anchors=None, stride=32):
         super().__init__()
         if anchors is None:
             anchors = [(10, 13), (16, 30), (33, 23)]
@@ -256,25 +338,33 @@ def build_targets(
     feat_h, feat_w,
     num_classes,
     device,
+    batch_size: int,
 ):
     """
+    parameters:
+    targets: (n,6) 目标张量，包含 batch 索引、类别和归一化的 bbox 坐标
+    anchors: (nA,2) 锚框尺寸，单位为像素
+    stride: 特征图相对于输入图像的下采样倍数
+    feat_h, feat_w: 特征图的高和宽
+    num_classes: 类别数
+    device: 设备
     返回：
     tbox:   (B, nA, feat_h, feat_w, 4)
     tconf:  (B, nA, feat_h, feat_w, 1)
     tcls:   (B, nA, feat_h, feat_w, num_classes)
     """
-    tbox = torch.zeros((targets[:,0].max().int().item()+1 if targets.numel() else 1,
-                        anchors.shape[0], feat_h, feat_w, 4), device=device)
-    tconf = torch.zeros((tbox.shape[0], anchors.shape[0], feat_h, feat_w, 1), device=device)
-    tcls = torch.zeros((tbox.shape[0], anchors.shape[0], feat_h, feat_w, num_classes), device=device)
+
+    tbox = torch.zeros((batch_size, anchors.shape[0], feat_h, feat_w, 4), device=device)
+    tconf = torch.zeros((batch_size, anchors.shape[0], feat_h, feat_w, 1), device=device)
+    tcls = torch.zeros((batch_size, anchors.shape[0], feat_h, feat_w, num_classes), device=device)
 
     if targets.numel() == 0:
         return tbox, tconf, tcls
 
     gxy = targets[:, 2:4] * torch.tensor([feat_w, feat_h], device=device)  # center in grid coords
     gwh = targets[:, 4:6] * torch.tensor([feat_w * stride, feat_h * stride], device=device) / stride  # normalize to anchor space
-    gij = gxy.long()
-    gi, gj = gij[:, 0], gij[:, 1]
+    gij = gxy.long() # grid cell indices
+    gi, gj = gij[:, 0], gij[:, 1] # x,y indices
 
     # anchor matching by ratio
     anchor_wh = anchors.to(device) / stride  # to grid units
@@ -308,13 +398,29 @@ class YoloLoss(nn.Module):
         self.l1 = nn.SmoothL1Loss()
 
     def forward(self, raw_pred, targets):
-        # raw_pred: (B, nA, ny, nx, 5+nc) BEFORE sigmoid/exp
+        """
+        raw_pred: (B, nA, ny, nx, 5+nc) 未解码的预测 
+        targets:  (M, 6) 目标张量，包含 batch 索，来自 Dataloader的collate_fn
+        """
         device = raw_pred.device
         b, nA, ny, nx, no = raw_pred.shape
 
         anchors = self.anchors.to(device)
+        """
+        这些都是真实的目标值，是通过 build_targets 函数生成的：
+        tbox : (B, nA, ny, nx, 4) 
+        tconf: (B, nA, ny, nx, 1)
+        tcls : (B, nA, ny, nx, nc)
+        """
         tbox, tconf, tcls = build_targets(
-            targets, anchors, self.stride, ny, nx, self.num_classes, device
+            targets,
+            anchors,
+            self.stride,
+            ny,
+            nx,
+            self.num_classes,
+            device,
+            batch_size=b,
         )
 
         # predicted parts
@@ -323,13 +429,17 @@ class YoloLoss(nn.Module):
         p_obj = raw_pred[..., 4:5]
         p_cls = raw_pred[..., 5:]
 
-        # box loss: offset + wh log-space
-        l_box = self.l1(p_xy[tconf.bool().expand_as(p_xy)], tbox[..., 0:2][tconf.bool().expand_as(tbox[..., 0:2])]) \
-            if tconf.sum() > 0 else torch.tensor(0., device=device)
-        l_wh = self.l1(p_wh[tconf.bool().expand_as(p_wh)], tbox[..., 2:4][tconf.bool().expand_as(tbox[..., 2:4])]) \
-            if tconf.sum() > 0 else torch.tensor(0., device=device)
+        # box loss: 只在有目标的网格点上计算
+        obj_mask = tconf.squeeze(-1).bool()  # (B, nA, ny, nx)
+        if obj_mask.any():
+            l_box = self.l1(p_xy[obj_mask], tbox[..., 0:2][obj_mask])
+            l_wh = self.l1(p_wh[obj_mask], tbox[..., 2:4][obj_mask])
+        else:
+            l_box = torch.tensor(0.0, device=device)
+            l_wh = torch.tensor(0.0, device=device)
 
         # obj loss
+        # 带对数损失的 BCE（二元交叉熵）
         l_obj = self.bce(p_obj, tconf)
 
         # cls loss
@@ -340,6 +450,8 @@ class YoloLoss(nn.Module):
             l_cls = torch.tensor(0., device=device)
 
         loss = l_box + l_wh + l_obj + l_cls
+
+        # 返回 loss 和字典形式的各部分 loss
         return loss, {"l_box": l_box.item(), "l_wh": l_wh.item(),
                       "l_obj": l_obj.item(), "l_cls": l_cls.item() if isinstance(l_cls, torch.Tensor) else l_cls}
     
@@ -381,16 +493,40 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=Args.lr)
 
     model.train()
+    num_epochs = Args.epochs
 
     for epoch in range(Args.epochs):
+        loss = None
+        loss_items = None
         tpdm = tqdm(train_loader, desc=f"Epoch {epoch+1}/{Args.epochs}")
 
         for imgs, targets in train_loader:
+            # 移动到设备
             imgs = imgs.to(device)
             targets = targets.to(device)  # (n,6): b,cls,cx,cy,w,h (normalized)
 
+            # 前向与损失计算, decoded 未用于训练，仅供推理; raw 用于计算损失
+            # decoded: (B, nA, ny, nx, 5+nc)
+            # raw:    (B, nA, ny, nx, 5+nc)
+
             decoded, raw = model(imgs)            # decoded unused in loss here
             loss, loss_items = criterion(raw, targets)
+
+            if (epoch + 1) % 4 == 0:
+                with torch.no_grad():
+                    # 取 batch 中第 0 张图
+                    img0 = imgs[0]
+                    dec0 = decoded[0]
+                    # 取该图的 GT（来自 targets 里的 batch_id==0）
+                    t0 = targets[targets[:, 0] == 0][:, 1:]  # (n,5) [cls,cx,cy,w,h]
+                    plot_decoded_predictions(
+                        img_chw=img0,
+                        decoded_b=dec0,
+                        targets_b=t0,
+                        conf_thres=0.35,
+                        topk=30,
+                        title=f"epoch={epoch+1} step={epoch // 4} (pred:red, gt:green)",
+                    )
 
             optimizer.zero_grad()
             loss.backward()
@@ -402,13 +538,16 @@ def main():
                            l_obj=f"{loss_items['l_obj']:.4f}",
                            l_cls=f"{loss_items['l_cls']:.4f}")
 
+        if loss is None or loss_items is None:
+            raise RuntimeError("train_loader is empty: loss was never computed")
+
         print(f"Epoch {epoch+1}/{Args.epochs} | "
               f"loss={loss.item():.4f} | "
               f"l_box={loss_items['l_box']:.4f} l_wh={loss_items['l_wh']:.4f} "
               f"l_obj={loss_items['l_obj']:.4f} l_cls={loss_items['l_cls']:.4f}")
-
-
-
+    
+    plt.show()
+        
 
 if __name__ == "__main__":
     main()

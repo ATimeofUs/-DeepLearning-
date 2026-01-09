@@ -1,0 +1,17 @@
+{
+  "configurations": [
+    {
+      "name": "Python 调试程序: 当前文件",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "externalTerminal",
+      "args": ["-X", "utf8"],
+      "env": {
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+        "PYTHONBREAKPOINT": "1"
+      }
+    }
+  ]
+}

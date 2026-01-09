@@ -202,18 +202,18 @@ tensor([[2.0000, 0.9000, 0.9000, 0.1000, 0.1000]])
 | raw[..., 5:] (cls)                                           | (B, nA, ny, nx, nc)    | 类别（logits）                               |
 | xy = <span style="background:#33FF33;">sigmoid</span>(tx, ty) + grid | (B, nA, ny, nx, 2)     | 特征图坐标系下的中心                         |
 | wh = exp(tw, th) * anchors                                   | (B, nA, ny, nx, 2)     | 特征图坐标系下的宽高                         |
-| conf = <span style="background:#33FF33;">sigmoid</span>(obj) | (B, nA, ny, nx, 1)     | 目标置信度                                   |
-| cls = <span style="background:#33FF33;">sigmoid</span>(cls logits) | (B, nA, ny, nx, nc)    | 类别概率                                     |
+| conf = <span style="background:#33FF33;">sigmoid</span>(obj) | (B, nA, ny, nx, 1)     | 目标置信度 confidence                        |
+| cls = <span style="background:#33FF33;">sigmoid</span>(cls logits) | (B, nA, ny, nx, nc)    | 类别概率 class probabilities                 |
 | decoded = concat(xy`*`stride, wh`*`stride, conf, cls)        | (B, nA, ny, nx, 5+nc)  | 拼接后的输出：xy/wh 已乘 stride 转到像素坐标 |
 | 返回 raw（未解码）                                           | (B, nA, ny, nx, 5+nc)  | 与 decoded 同形状，未做 sigmoid/exp          |
 
 
 
-### forward
+### grid
 
 基本形状 
 
-```
+```python
  torch.Size([1, 1, 2, 3, 2])
  For example:
  tensor([[[0., 0.],
@@ -225,9 +225,9 @@ tensor([[2.0000, 0.9000, 0.9000, 0.1000, 0.1000]])
          [2., 1.]]])
 ```
 
-#### 用法1
+用法
 
-```
+```python
 xy = torch.sigmoid(raw[..., 0:2]) + self.grid 
 ```
 
@@ -240,4 +240,77 @@ xy = torch.sigmoid(raw[..., 0:2]) + self.grid
  通过广播机制，`gird`能运用于每一个`batch`中，将所有相对坐标映射到绝对坐标上
 
 
+
+### anchors
+
+理解为“锚”框的大小比例
+
+传入的形状
+
+> For example
+
+```
+anchors = [(10, 13), (16, 30), (33, 23)]
+```
+
+> resize后
+
+基本形状
+
+```python
+size([1, self.num_anchors, 1, 1, 2])
+```
+
+
+
+
+
+## build_targets
+
+| 名称/步骤                                                 | 形状                                   | 含义/单位                                |
+| --------------------------------------------------------- | -------------------------------------- | ---------------------------------------- |
+| targets                                                   | $(n, 6)$                               | $[b, cls, cx, cy, w, h]$，归一化坐标     |
+| anchors                                                   | $(nA, 2)$                              | 先验宽高，单位：像素                     |
+| tbox                                                      | $(B, nA, feat_h, feat_w, 4)$           | 目标框真值（网格坐标系，wh 为 log 空间） |
+| tconf                                                     | $(B, nA, feat_h, feat_w, 1)$           | 目标存在标记（0/1）                      |
+| tcls                                                      | $(B, nA, feat_h, feat_w, num_classes)$ | one-hot 类别（num_classes=1 时全 0）     |
+| gxy = targets[:,2:4]*[feat_w,feat_h]                      | $(n, 2)$                               | 归一化中心 → 网格坐标                    |
+| gwh = targets[:,4:6]*[feat_w*stride,feat_h*stride]/stride | $(n, 2)$                               | 归一化 wh → 网格尺度（已除 stride）      |
+| gij = gxy.long()                                          | $(n, 2)$                               | 网格整索引 (gi, gj)                      |
+| gi, gj                                                    | $(n,)$                                 | x/y 整索引                               |
+| anchor_wh = anchors/stride                                | $(nA, 2)$                              | anchor 转为网格尺度                      |
+| ratios = gwh[:,None,:]/anchor_wh[None]                    | $(n, nA, 2)$                           | 目标 wh 与 anchor 比例                   |
+| inv_ratios = anchor_wh[None]/gwh                          | $(n, nA, 2)$                           | 反比例                                   |
+| max_ratios = max(ratios, inv_ratios).max(-1)              | $(n, nA)$                              | 取更大的比例，衡量匹配程度               |
+| best_anchors = argmin(max_ratios, dim=1)                  | $(n,)$                                 | 为每个目标选最匹配的 anchor              |
+
+
+
+
+
+
+
+## YoloLoss
+
+- 总损失：
+  $ L = L_{\text{box}} + L_{\text{wh}} + L_{\text{obj}} + L_{\text{cls}} $
+
+- 仅在正样本位置（obj\_mask = tconf.squeeze(-1) > 0）计算：
+  \( L_{\text{box}} = \text{SmoothL1}( \sigma(\mathbf{p}_{xy}) , \mathbf{t}_{xy} ) \)
+  
+  \( L_{\text{wh}}  = \text{SmoothL1}( \mathbf{p}_{wh} , \mathbf{t}_{wh} ) \)
+
+  其中 \(\sigma\) 是 sigmoid，\(\mathbf{t}_{wh}\) 是对真实框 wh 做 \(\log(\frac{w,h}{\text{anchor}})\) 的结果。
+
+- 目标存在性（含正负样本）：
+  \( L_{\text{obj}} = \text{BCEWithLogits}( \mathbf{p}_{obj}, \mathbf{t}_{conf} ) \)
+
+- 类别（多类时；若 num\_classes=1，则 \(L_{\text{cls}} = 0\)）：
+  \( L_{\text{cls}} = \text{BCEWithLogits}( \mathbf{p}_{cls}, \mathbf{t}_{cls} ) \)
+
+- 输出的 logits/预测分量：
+  - \(\mathbf{p}_{xy} = \sigma(\text{raw}[...,0:2])\)
+  - \(\mathbf{p}_{wh} = \text{raw}[...,2:4]\)（与 \(\log\) 目标比）
+  - \(\mathbf{p}_{obj} = \text{raw}[...,4:5]\)
+  - \(\mathbf{p}_{cls} = \text{raw}[...,5:]\)（多标签 sigmoid）
 

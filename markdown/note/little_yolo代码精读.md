@@ -296,21 +296,29 @@ size([1, self.num_anchors, 1, 1, 2])
   $ L = L_{\text{box}} + L_{\text{wh}} + L_{\text{obj}} + L_{\text{cls}} $
 
 - 仅在正样本位置（obj\_mask = tconf.squeeze(-1) > 0）计算：
-  \( L_{\text{box}} = \text{SmoothL1}( \sigma(\mathbf{p}_{xy}) , \mathbf{t}_{xy} ) \)
+  $ L_{\text{box}} = \text{SmoothL1}( \sigma(\mathbf{p}_{xy}) , \mathbf{t}_{xy} ) $
   
-  \( L_{\text{wh}}  = \text{SmoothL1}( \mathbf{p}_{wh} , \mathbf{t}_{wh} ) \)
+  $ L_{\text{wh}}  = \text{SmoothL1}( \mathbf{p}_{wh} , \mathbf{t}_{wh} ) $
 
-  其中 \(\sigma\) 是 sigmoid，\(\mathbf{t}_{wh}\) 是对真实框 wh 做 \(\log(\frac{w,h}{\text{anchor}})\) 的结果。
+  其中 $\sigma$ 是 sigmoid，$\mathbf{t}_{wh}$ 是对真实框 wh 做 $\log(\frac{w,h}{\text{anchor}})$ 的结果。
 
 - 目标存在性（含正负样本）：
-  \( L_{\text{obj}} = \text{BCEWithLogits}( \mathbf{p}_{obj}, \mathbf{t}_{conf} ) \)
+  $ L_{\text{obj}} = \text{BCEWithLogits}( \mathbf{p}_{obj}, \mathbf{t}_{conf} ) $
 
-- 类别（多类时；若 num\_classes=1，则 \(L_{\text{cls}} = 0\)）：
-  \( L_{\text{cls}} = \text{BCEWithLogits}( \mathbf{p}_{cls}, \mathbf{t}_{cls} ) \)
+- 类别（多类时；若 num\_classes=1，则 $L_{\text{cls}} = 0$）：
+  $ L_{\text{cls}} = \text{BCEWithLogits}( \mathbf{p}_{cls}, \mathbf{t}_{cls} ) $
 
 - 输出的 logits/预测分量：
-  - \(\mathbf{p}_{xy} = \sigma(\text{raw}[...,0:2])\)
-  - \(\mathbf{p}_{wh} = \text{raw}[...,2:4]\)（与 \(\log\) 目标比）
-  - \(\mathbf{p}_{obj} = \text{raw}[...,4:5]\)
-  - \(\mathbf{p}_{cls} = \text{raw}[...,5:]\)（多标签 sigmoid）
+  - $\mathbf{p}_{xy} = \sigma(\text{raw}[...,0:2])$
+  - $\mathbf{p}_{wh} = \text{raw}[...,2:4]$（与 $\log$ 目标比）
+  - $\mathbf{p}_{obj} = \text{raw}[...,4:5]$
+  - $\mathbf{p}_{cls} = \text{raw}[...,5:]$（多标签 sigmoid）
+
+
+
+$BCEWithLogits$:
+
+![image-20260109150632887](D:\__SelfCoding\Deep_learning\markdown\note\little_yolo代码精读.assets\image-20260109150632887.png)
+
+
 

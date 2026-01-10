@@ -1,0 +1,16 @@
+{
+    // 1. 降低类型检查的严格程度
+    "python.analysis.typeCheckingMode": "basic", 
+    
+    // 2. 忽略特定的诊断规则（最核心！）
+    "python.analysis.diagnosticSeverityOverrides": {
+        // 强制关闭“None 的已知属性”报错（针对 model.model.load_state_dict）
+        "reportOptionalMemberAccess": "none",
+        
+        // 强制关闭“未从模块中导出”报错（针对 from ultralytics import YOLO）
+        "reportGeneralTypeIssues": "none",
+        
+        // 忽略私有属性访问警告
+        "reportPrivateUsage": "none"
+    }
+}

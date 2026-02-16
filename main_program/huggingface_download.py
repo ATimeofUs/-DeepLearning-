@@ -24,8 +24,8 @@ def op1(repo_id, save_path, required_files=None):
 if __name__ == "__main__":
     op = input("请输入命令")
 
-    save_path = "/run/media/ping/TRAIN_DATA/model/pic/yzd-v-DWPose"
-    repo_id = "yzd-v/DWPose"
+    save_path = "/run/media/ping/TRAIN_DATA/model/pic/gsdf-EasyNegative"
+    repo_id = "gsdf/EasyNegative"
 
     required_files = [
         "yolox_l.onnx",
@@ -41,11 +41,5 @@ if __name__ == "__main__":
     input("Press Enter to continue...")
     
 """
-
-空间稳定
-controlnet-zoe-depth-sdxl-1.0
-
-
-controlnet-tile-sdxl-1.0
 
 """

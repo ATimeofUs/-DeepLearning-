@@ -1,0 +1,32 @@
+# 忽略 Python 编译文件
+__pycache__/
+*.py[cod]
+
+# 忽略虚拟环境
+venv/
+.env/
+
+# 忽略日志文件
+*.log
+
+# 忽略临时文件
+*.tmp
+*.swp
+*.swo
+.DS_Store
+
+# 忽略 IDE 配置文件
+.vscode/
+.idea/
+
+# 忽略生成的文件
+*.out
+*.exe
+*.dll
+*.so
+*.o
+*.a
+
+# 忽略特定目录
+tmp/
+run/

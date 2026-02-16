@@ -18,18 +18,17 @@ from typing import Dict, Optional
 
 @dataclass
 class DatasetConfig:
-    diffusers_stable_diffusion_xl_inpainting_model: str = "/run/media/ping/TRAIN_DATA/model/pic/diffusers-stable-diffusion-xl-inpainting-1.0"
-    animagine_xl: str = "/run/media/ping/TRAIN_DATA/model/pic/animagine-xl-3.0"
+    diffusers_stable_diffusion_xl_inpainting_model: str = "/run/media/ping/TRAIN_DATA1/model/pic/diffusers-stable-diffusion-xl-inpainting-1.0"
+    animagine_xl: str = "/run/media/ping/TRAIN_DATA1/model/pic/animagine-xl-3.0"
     control_model_canny: str = (
-        "/run/media/ping/TRAIN_DATA/model/pic/xinsir-controlnet-canny-sdxl-1.0"
+        "/run/media/ping/TRAIN_DATA1/model/pic/xinsir-controlnet-canny-sdxl-1.0"
     )
     control_model_openpose: str = (
-        "/run/media/ping/TRAIN_DATA/model/pic/xinsir-controlnet-openpose-sdxl-1.0"
+        "/run/media/ping/TRAIN_DATA1/model/pic/xinsir-controlnet-openpose-sdxl-1.0"
     )
     vae_model: str = (
-        "/run/media/ping/TRAIN_DATA/model/pic/madebyollin-sdxl-vae-fp16-fix"
+        "/run/media/ping/TRAIN_DATA1/model/pic/madebyollin-sdxl-vae-fp16-fix"
     )
-    input_path: str = "/home/ping/Downloads/100289305_p0_master1200.jpg"
 
     @classmethod
     def from_env(cls) -> "DatasetConfig":

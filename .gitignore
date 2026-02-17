@@ -30,3 +30,7 @@ venv/
 # 忽略特定目录
 tmp/
 run/
+
+# 忽略测试文件
+test.py
+main_program/huggingface_download.py

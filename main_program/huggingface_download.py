@@ -24,15 +24,25 @@ def op1(repo_id, save_path, required_files=None):
 if __name__ == "__main__":
     op = input("请输入命令")
 
-    save_path = "/run/media/ping/TRAIN_DATA/model/pic/blip-image-captioning-large"
-    repo_id = "Salesforce/blip-image-captioning-large"
+    save_path = "/run/media/ping/TRAIN_DATA/model/pic/animagine-xl-4.0"
+    repo_id = "cagliostrolab/animagine-xl-4.0"
 
     required_files = [
-        "README.md",
-        "config.json",
-        "model.safetensors",
-        "tokenizer.json",
-        "tokenizer_config.json",
+        "model_index.json",
+        "unet/config.json",
+        "unet/diffusion_pytorch_model.safetensors",
+        "vae/config.json",
+        "vae/diffusion_pytorch_model.safetensors",
+        "text_encoder/config.json",
+        "text_encoder/model.safetensors",
+        "text_encoder_2/config.json",
+        "text_encoder_2/model.safetensors",
+        "tokenizer/tokenizer_config.json",
+        "tokenizer/vocab.json",
+        "tokenizer/merges.txt",
+        "tokenizer/special_tokens_map.json",
+        "tokenizer_2/tokenizer_config.json",
+        "scheduler/scheduler_config.json"
     ]
 
     if op == "0":

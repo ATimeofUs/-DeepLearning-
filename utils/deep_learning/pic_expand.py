@@ -283,7 +283,7 @@ class FourStageOutpainter:
         feather_radius=12,
         guidance_scale=7.5,
         num_inference_steps=30,
-        strength=0.85,
+        strength=0.98,
         debug_mask_path: Optional[str] = None,
     ):
         canvas, expand_mask, paste_pos = create_canvas_and_mask(
@@ -333,7 +333,7 @@ class FourStageOutpainter:
         controlnet_conditioning_scale=0.75,
         guidance_scale=6.0,
         num_inference_steps=35,
-        strength=0.85,
+        strength=0.95,
         canny_low=120,
         canny_high=220,
         canny_blur_sigma=0.8,

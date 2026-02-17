@@ -24,13 +24,17 @@ def op1(repo_id, save_path, required_files=None):
 if __name__ == "__main__":
     op = input("请输入命令")
 
-    save_path = "/run/media/ping/TRAIN_DATA/model/pic/gsdf-EasyNegative"
-    repo_id = "gsdf/EasyNegative"
+    save_path = "/run/media/ping/TRAIN_DATA/model/pic/blip-image-captioning-large"
+    repo_id = "Salesforce/blip-image-captioning-large"
 
     required_files = [
-        "yolox_l.onnx",
-        "dw-ll_ucoco_384.onnx",
+        "README.md",
+        "config.json",
+        "model.safetensors",
+        "tokenizer.json",
+        "tokenizer_config.json",
     ]
+
     if op == "0":
         op0(repo_id)
     elif op == "1":

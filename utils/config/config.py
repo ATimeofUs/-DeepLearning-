@@ -14,54 +14,68 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, asdict
-from typing import Dict, Optional
+from typing import List, ClassVar, Dict, Optional
+import warnings
 
 
 @dataclass
 class DatasetConfig:
-    main_model_file: str = "/run/media/ping/TRAIN_DATA1/model/"
-    diffusers_stable_diffusion_xl_inpainting_model: str = "pic/diffusers-stable-diffusion-xl-inpainting-1.0"
+    diffusers_stable_diffusion_xl_inpainting_model: str = (
+        "pic/diffusers-stable-diffusion-xl-inpainting-1.0"
+    )
     animagine_xl: str = "pic/animagine-xl-3.0"
+    animagine_xl_4: str = "pic/animagine-xl-4.0"
+
     control_model_canny: str = "pic/xinsir-controlnet-canny-sdxl-1.0"
+    control_model_depth: str = "pic/xinsir-controlnet-depth-sdxl-1.0"
     control_model_openpose: str = "pic/xinsir-controlnet-openpose-sdxl-1.0"
+    control_model_tile: str = "pic/xinsir-controlnet-tile-sdxl-1.0"
+
+    lllyasviel_model: str = "pic/lllyasviel_Annotators"
+
     vae_model: str = "pic/madebyollin-sdxl-vae-fp16-fix"
+    lora_model: str = (
+        "pic/Linaqruf-style-enhancer-xl-lora/style-enhancer-xl.safetensors"
+    )
 
-    def __init__(self, base: Optional[str] = None):
-        # Decide base path: prefer provided `base`, else the annotated default.
-        base_candidate = base or self.main_model_file
-        alt_candidate = "/run/media/ping/TRAIN_DATA/model/"
+    def __init__(self):
+        # Decide base path: prefer explicit `base`, then env var, then known defaults.
+        DEFAULT_BASE_CANDIDATES: List[str] = [
+            "/run/media/ping/TRAIN_DATA1/model/",
+            "/run/media/ping/TRAIN_DATA/model/",
+        ]
 
-        # If the primary candidate doesn't exist but an alternate does, use the alternate.
-        if not os.path.exists(base_candidate):
-            if os.path.exists(alt_candidate):
-                base_candidate = alt_candidate
-            else:
-                raise FileNotFoundError(
-                    f"模型路径错误 ❌ Neither the provided base path '{base_candidate}' nor the alternate '{alt_candidate}' exists."
-                )
+        self.main_model_file = ""
+        for t in DEFAULT_BASE_CANDIDATES:
+            if os.path.exists(t):
+                self.main_model_file = t
+                break
 
-        self.main_model_file = base_candidate
+        assert self.main_model_file != ""
 
         # Build full model paths by joining with the base path.
-        self.diffusers_stable_diffusion_xl_inpainting_model = os.path.join(
-            self.main_model_file, "pic", "diffusers-stable-diffusion-xl-inpainting-1.0"
-        )
-        self.animagine_xl = os.path.join(self.main_model_file, "pic", "animagine-xl-3.0")
-        self.control_model_canny = os.path.join(
-            self.main_model_file, "pic", "xinsir-controlnet-canny-sdxl-1.0"
-        )
-        self.control_model_openpose = os.path.join(
-            self.main_model_file, "pic", "xinsir-controlnet-openpose-sdxl-1.0"
-        )
-        self.vae_model = os.path.join(self.main_model_file, "pic", "madebyollin-sdxl-vae-fp16-fix")
+        self.diffusers_stable_diffusion_xl_inpainting_model = os.path.join(self.main_model_file, self.diffusers_stable_diffusion_xl_inpainting_model)
+        self.animagine_xl = os.path.join(self.main_model_file, self.animagine_xl)
+        self.animagine_xl_4 = os.path.join(self.main_model_file, self.animagine_xl_4)
+        
+        # ctl
+        self.control_model_canny = os.path.join(self.main_model_file, self.control_model_canny)
+        self.control_model_depth = os.path.join(self.main_model_file, self.control_model_depth)
+        self.control_model_openpose = os.path.join(self.main_model_file, self.control_model_openpose)
+        self.control_model_tile = os.path.join(self.main_model_file, self.control_model_tile)
+        
+        # vae 和 lora 模型路径
+        self.vae_model = os.path.join(self.main_model_file, self.vae_model)
+        self.lora_model = os.path.join(self.main_model_file, self.lora_model)
+        self.lllyasviel_model = os.path.join(self.main_model_file, self.lllyasviel_model)
 
-    
-    @classmethod
-    def from_env(cls) -> "DatasetConfig":
-        env_base = os.environ.get("MAIN_MODEL_FILE")
-        if env_base:
-            return cls(base=env_base)
-        return cls()
+        # Warn about missing individual model files but do not block here.
+        for k, v in self.as_dict().items():
+            if v is None:
+                warnings.warn(f"Configuration key {k} is None")
+                continue
+            if not os.path.exists(v):
+                warnings.warn(f"Path for {k} does not exist: {v}")
 
     def as_dict(self) -> Dict[str, Optional[str]]:
         return asdict(self)
@@ -69,4 +83,4 @@ class DatasetConfig:
 
 def get_default_config() -> DatasetConfig:
     """Return a default DatasetConfig instance (from environment if set)."""
-    return DatasetConfig.from_env()
+    return DatasetConfig()

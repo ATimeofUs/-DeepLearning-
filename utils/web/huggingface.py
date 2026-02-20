@@ -92,11 +92,6 @@ class Huggingface:
         save_path: str,
         essential_files: list[str],
     ):
-        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-        os.environ["HF_HUB_DISABLE_XET"] = "1"
-        os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
-
         print("\n" + "=" * 60)
         print(f"开始官方通道下载: {self.repo_id}")
         print(f"目标目录: {save_path}")

@@ -1,0 +1,146 @@
+classDiagram
+    class Stage {
+        <<abstract>>
+        +process(context: StageContext) StageContext*
+    }
+
+    class Stage1BaseInpaint {
+        -deps: StageDependencies
+        -feather_radius: int
+        -guidance_scale: float
+        -num_inference_steps: int
+        -strength: float
+        +process(context: StageContext) StageContext
+    }
+
+    class Stage2DepthCanny {
+        -deps: StageDependencies
+        -controlnet_conditioning_scale: list
+        -guidance_scale: float
+        -num_inference_steps: int
+        -strength: float
+        -depth_fn: Callable
+        -canny_fn: Callable
+        +process(context: StageContext) StageContext
+    }
+
+    class Stage3TilePose {
+        -deps: StageDependencies
+        -controlnet_conditioning_scale: list
+        -guidance_scale: float
+        -num_inference_steps: int
+        -strength: float
+        -pose_score_threshold: float
+        -pose_from: str
+        -tile_fn: Callable
+        -canny_fn: Callable
+        -pose_draw_fn: Callable
+        +process(context: StageContext) StageContext
+    }
+
+    class StageContext {
+        +input_image: Image
+        +input_path: str
+        +current_image: Image
+        +canvas: Optional[Image]
+        +expand_mask: Optional[Image]
+        +pose_image: Optional[Image]
+        +pose_canvas: Optional[Image]
+        +debug_dir: Optional[str]
+        +prompt: Optional[str]
+        +negative_prompt: Optional[str]
+    }
+
+    %% Utility functions in module scope
+    class Utils {
+        +calculate_wh(h:int, w:int) Tuple[int,int]
+        +expand_to_canvas(image, new_size, paste_pos) Image
+        +create_canvas_and_mask(img_path, feather_radius=4, smart_fill=True) Tuple[Image, Image, Tuple[int,int]]
+    }
+
+    class StageDependencies {
+        <<interface>>
+        +cfg: Any
+        +get_inpaint_pipe() Any
+        +get_depth_canny_pipe() Any
+        +get_tile_pose_pipe() Any
+        +get_pose_getter() Any
+    }
+
+    class _ThreeStageOutpaintDeps {
+        -_outpainter: ThreeStageOutpaint
+        +cfg: Any
+        +get_inpaint_pipe() Any
+        +get_depth_canny_pipe() Any
+        +get_tile_pose_pipe() Any
+        +get_pose_getter() Any
+    }
+
+    class ThreeStageOutpaint {
+        -cfg: Any
+        -device: str
+        -pose_getter: Any
+        -pipe_inpaint: Any
+        -pipe_cn_depth_canny: Any
+        -pipe_cn_tile_pose: Any
+        -animagine_model: str
+        -animagine_model_4: str
+        -base_model: str
+        -ctl_model_canny: str
+        -ctl_model_depth: str
+        -ctl_model_openpose: str
+        -ctl_model_tile: str
+        -vae_model: str
+        -lora_model: Optional[str]
+        -_models_loaded: bool
+        -_lazy: bool
+        +stages: List[Stage]
+        +__init__(cfg, device, pose_getter, pipe_inpaint, lazy_load, stage_params)
+        +_lazy_load_models() void
+        +_stage_kwargs(stage_name, stage_cls, stage_params, **defaults) dict
+        +execute_once(input_path, tmp_dir, debug, prompt, negative_prompt) Tuple[StageContext, str]
+    }
+
+
+    class pic_expand {
+        +pic_expand(input_img_path, prompt, negative_prompt, save_pic_path, debug, stage_params) void
+    }
+
+    %% 外部模块（简化表示）
+    class control_image_get {
+        +RtmlibPoseGet
+        +draw_pose_skeleton_image
+        +get_depth_zoe
+        +get_canny_control
+        +get_tile_control
+    }
+
+    class pipeline_loaders {
+        +load_inpaint_pipe()
+        +load_multi_controlnet_inpaint_pipe()
+    }
+
+    %% 继承关系
+    Stage <|-- Stage1BaseInpaint
+    Stage <|-- Stage2DepthCanny
+    Stage <|-- Stage3TilePose
+
+    StageDependencies <|.. _ThreeStageOutpaintDeps : 实现
+
+    %% 组合/聚合关系
+    ThreeStageOutpaint o-- Stage : 包含（stages列表）
+    ThreeStageOutpaint ..> Stage : 调用 stage1~stage3
+    ThreeStageOutpaint ..> Utils : 使用工具函数（create_canvas_and_mask 等）
+    Stage1BaseInpaint ..> Utils : 调用 create_canvas_and_mask
+    Stage2DepthCanny ..> control_image_get : 使用 get_depth_zoe/get_canny_control
+    Stage3TilePose ..> control_image_get : 使用 get_tile_control/draw_pose_skeleton_image
+    Stage2DepthCanny ..> _ThreeStageOutpaintDeps : 通过 deps 获取 depth+canny pipeline
+    Stage3TilePose ..> _ThreeStageOutpaintDeps : 通过 deps 获取 tile+pose pipeline 与 pose_getter
+    _ThreeStageOutpaintDeps --> ThreeStageOutpaint : 持有引用
+    Stage --> StageDependencies : 使用
+    Stage --> StageContext : 操作
+
+    %% 依赖关系（简化）
+    ThreeStageOutpaint ..> pipeline_loaders : 使用
+    ThreeStageOutpaint ..> control_image_get : 使用（通过依赖注入）
+    pic_expand --> ThreeStageOutpaint : 创建并调用

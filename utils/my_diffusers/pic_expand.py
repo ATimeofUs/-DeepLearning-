@@ -1,6 +1,7 @@
 import os
 import inspect
 import cv2
+
 from abc import ABC, abstractmethod
 from dataclasses import replace
 from typing import Optional, Mapping, Any, Protocol, runtime_checkable, Literal
@@ -215,10 +216,10 @@ class Stage2DepthCanny(Stage):
         # 根据 image_source 选择输入到模型的图片
         if self.image_source == "canvas":
             input_image = context.canvas if context.canvas is not None else context.current_image
-            print(f"📌 Stage2 输入图片来源: canvas")
+            print("📌 Stage2 输入图片来源: canvas")
         else:  # "current"
             input_image = context.current_image
-            print(f"📌 Stage2 输入图片来源: current_image")
+            print("📌 Stage2 输入图片来源: current_image")
         
         w, h = input_image.size
 
@@ -232,11 +233,11 @@ class Stage2DepthCanny(Stage):
         if self.mask_mode == 1:
             # 全白 mask - 模型可以重绘整个图像
             mask_image = Image.new("L", (w, h), 255)
-            print(f"🎨 Stage2 Mask 模式: 全白 mask（重绘模式）")
+            print("🎨 Stage2 Mask 模式: 全白 mask（重绘模式）")
         else:
             # expand_mask - 只在扩展区域生成
             mask_image = context.expand_mask
-            print(f"🎨 Stage2 Mask 模式: expand_mask（扩展区域）")
+            print("🎨 Stage2 Mask 模式: expand_mask（扩展区域）")
 
         print(f"📌 Stage2 使用模型: {'ANIME' if self.model_type == ModelType.ANIME else 'BASE'}")
         print(f"📊 Depth 权重: {self.controlnet_conditioning_scale[0]}")
@@ -352,10 +353,10 @@ class Stage3TilePose(Stage):
         # 根据 image_source 选择输入到模型的图片
         if self.image_source == "canvas":
             input_image = context.canvas if context.canvas is not None else context.current_image
-            print(f"📌 Stage3 输入图片来源: canvas")
+            print("📌 Stage3 输入图片来源: canvas")
         else:  # "current"
             input_image = context.current_image
-            print(f"📌 Stage3 输入图片来源: current_image")
+            print("📌 Stage3 输入图片来源: current_image")
         
         w, h = input_image.size
 
@@ -383,11 +384,11 @@ class Stage3TilePose(Stage):
         if self.mask_mode == 1:
             # 全白 mask - 模型可以重绘整个图像
             mask_image = Image.new("L", (w, h), 255)
-            print(f"🎨 Stage3 Mask 模式: 全白 mask（重绘模式）")
+            print("🎨 Stage3 Mask 模式: 全白 mask（重绘模式）")
         else:
             # expand_mask - 只在扩展区域生成
             mask_image = context.expand_mask
-            print(f"🎨 Stage3 Mask 模式: expand_mask（扩展区域）")
+            print("🎨 Stage3 Mask 模式: expand_mask（扩展区域）")  
 
         print(f"📌 Stage3 使用模型: {'ANIME' if self.model_type == ModelType.ANIME else 'BASE'}")
         print(f"📊 Tile 权重: {self.controlnet_conditioning_scale[0]}")
